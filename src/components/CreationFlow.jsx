@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { TypeSelector } from "./TypeSelector";
+import { SpriteDisplay } from "./SpriteDisplay";
 import { regenmonTypes } from "../data/regenmonTypes";
 
 export function CreationFlow({ onCreate }) {
@@ -20,11 +21,14 @@ export function CreationFlow({ onCreate }) {
 
   return (
     <div className="creation-flow">
-      <h1 className="creation-title">Crea tu Regenmon</h1>
+      <div className="creation-header">
+        <p className="creation-label">AETHERIA</p>
+        <h1 className="creation-title">Invoca tu criatura</h1>
+      </div>
 
       {step === 1 && (
         <div className="creation-step fade-in">
-          <h2>¿Cómo se llama tu Regenmon?</h2>
+          <h2>¿Cómo se llama tu criatura?</h2>
           <input
             type="text"
             className="name-input"
@@ -38,6 +42,7 @@ export function CreationFlow({ onCreate }) {
             className="btn-primary"
             disabled={!name.trim()}
             onClick={() => setStep(2)}
+            style={name.trim() ? { "--btn-color": "#00BFFF" } : {}}
           >
             Siguiente
           </button>
@@ -46,7 +51,7 @@ export function CreationFlow({ onCreate }) {
 
       {step === 2 && (
         <div className="creation-step fade-in">
-          <h2>Elige su tipo</h2>
+          <h2>Elige su esencia</h2>
           <TypeSelector selected={selectedType} onSelect={setSelectedType} />
           <div className="step-buttons">
             <button className="btn-secondary" onClick={() => setStep(1)}>
@@ -56,6 +61,11 @@ export function CreationFlow({ onCreate }) {
               className="btn-primary"
               disabled={!selectedType}
               onClick={() => setStep(3)}
+              style={
+                selectedType
+                  ? { "--btn-color": regenmonTypes[selectedType].color }
+                  : {}
+              }
             >
               Siguiente
             </button>
@@ -65,11 +75,9 @@ export function CreationFlow({ onCreate }) {
 
       {step === 3 && (
         <div className="creation-step fade-in">
-          <h2>¿Listo para darle vida?</h2>
+          <h2>¿Listo para invocarla?</h2>
           <div className="creation-preview">
-            <span className="preview-emoji">
-              {regenmonTypes[selectedType].emoji}
-            </span>
+            <SpriteDisplay type={regenmonTypes[selectedType]} size={100} />
             <p className="preview-name">{name}</p>
             <p className="preview-type">
               Tipo: {regenmonTypes[selectedType].name}
@@ -79,8 +87,12 @@ export function CreationFlow({ onCreate }) {
             <button className="btn-secondary" onClick={() => setStep(2)}>
               Atrás
             </button>
-            <button className="btn-create" onClick={handleCreate}>
-              ¡Dar vida!
+            <button
+              className="btn-create"
+              onClick={handleCreate}
+              style={{ "--btn-color": regenmonTypes[selectedType].color }}
+            >
+              ¡Invocar!
             </button>
           </div>
         </div>
@@ -88,7 +100,15 @@ export function CreationFlow({ onCreate }) {
 
       <div className="step-indicator">
         {[1, 2, 3].map((s) => (
-          <span key={s} className={`dot ${step >= s ? "active" : ""}`} />
+          <span
+            key={s}
+            className={`dot ${step >= s ? "active" : ""}`}
+            style={
+              step >= s && selectedType
+                ? { background: regenmonTypes[selectedType]?.color }
+                : {}
+            }
+          />
         ))}
       </div>
     </div>
