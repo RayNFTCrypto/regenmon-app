@@ -385,6 +385,237 @@ export default defineConfig(({ mode }) => {
               res.end(JSON.stringify({ error: 'Voice service temporarily unavailable' }))
             }
           })
+
+          // ── Earn API ──
+          server.middlewares.use('/api/earn', async (req, res) => {
+            if (req.method !== 'POST') {
+              res.statusCode = 405
+              res.end(JSON.stringify({ error: 'Method not allowed' }))
+              return
+            }
+
+            const auth = await verifyAuth(req, env)
+            if (!auth) {
+              res.statusCode = 401
+              res.end(JSON.stringify({ error: 'Unauthorized' }))
+              return
+            }
+
+            let body
+            try { body = await readBody(req, res) } catch { return }
+
+            try {
+              const { action, walletAddress, stakeAmount, missionId, reward } = JSON.parse(body)
+              if (!action || !walletAddress) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'Missing action or walletAddress' }))
+                return
+              }
+
+              const { data: profile } = await auth.supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', auth.user.id)
+                .single()
+
+              if (!profile) {
+                res.statusCode = 404
+                res.end(JSON.stringify({ error: 'Profile not found' }))
+                return
+              }
+
+              // Mint helper
+              const mintTokens = async (to, amount) => {
+                const pk = env.DEPLOYER_PRIVATE_KEY
+                const tokenAddr = env.VITE_REGEN_TOKEN_ADDRESS
+                if (!pk || !tokenAddr) return { txHash: 'demo-mode', amount }
+                const { createWalletClient, http, parseUnits, defineChain } = await import('viem')
+                const { privateKeyToAccount } = await import('viem/accounts')
+                const chain = defineChain({
+                  id: 10143, name: 'Monad Testnet',
+                  nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+                  rpcUrls: { default: { http: ['https://testnet-rpc.monad.xyz/'] } },
+                  testnet: true,
+                })
+                const account = privateKeyToAccount(pk)
+                const client = createWalletClient({ account, chain, transport: http('https://testnet-rpc.monad.xyz/') })
+                const hash = await client.writeContract({
+                  address: tokenAddr,
+                  abi: [{ name: 'mintReward', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [] }],
+                  functionName: 'mintReward',
+                  args: [to, parseUnits(String(amount), 18)],
+                })
+                return { txHash: hash, amount }
+              }
+
+              res.setHeader('Content-Type', 'application/json')
+
+              // Daily Check-in
+              if (action === 'daily') {
+                const last = profile.last_daily_claim ? new Date(profile.last_daily_claim) : null
+                if (last) {
+                  const hrs = (Date.now() - last.getTime()) / (1000 * 60 * 60)
+                  if (hrs < 24) {
+                    res.statusCode = 400
+                    res.end(JSON.stringify({ error: `Disponible en ${Math.ceil(24 - hrs)}h` }))
+                    return
+                  }
+                }
+                const result = await mintTokens(walletAddress, 50)
+                await auth.supabase.from('profiles').update({ last_daily_claim: new Date().toISOString() }).eq('id', auth.user.id)
+                res.end(JSON.stringify({ ...result, type: 'daily' }))
+                return
+              }
+
+              // Care Reward
+              if (action === 'care') {
+                const last = profile.last_care_claim ? new Date(profile.last_care_claim) : null
+                if (last) {
+                  const hrs = (Date.now() - last.getTime()) / (1000 * 60 * 60)
+                  if (hrs < 4) {
+                    res.statusCode = 400
+                    res.end(JSON.stringify({ error: `Disponible en ${Math.ceil((4 - hrs) * 60)} min` }))
+                    return
+                  }
+                }
+                const { data: rmon } = await auth.supabase.from('regenmons').select('hunger, energy, happiness, health').eq('user_id', auth.user.id).single()
+                if (!rmon) { res.statusCode = 404; res.end(JSON.stringify({ error: 'No creature' })); return }
+                const avg = (rmon.hunger + rmon.energy + rmon.happiness + rmon.health) / 4
+                const rwd = avg >= 80 ? 30 : avg >= 60 ? 20 : avg >= 40 ? 10 : 0
+                if (!rwd) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Stats muy bajos (min 40%)' })); return }
+                const result = await mintTokens(walletAddress, rwd)
+                await auth.supabase.from('profiles').update({ last_care_claim: new Date().toISOString() }).eq('id', auth.user.id)
+                res.end(JSON.stringify({ ...result, type: 'care' }))
+                return
+              }
+
+              // Stake
+              if (action === 'stake') {
+                const amt = parseInt(stakeAmount)
+                if (!amt || amt <= 0) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Invalid amount' })); return }
+                const cur = profile.staked_amount || 0
+                await auth.supabase.from('profiles').update({ staked_amount: cur + amt, staked_at: profile.staked_at || new Date().toISOString() }).eq('id', auth.user.id)
+                res.end(JSON.stringify({ staked: cur + amt, type: 'stake' }))
+                return
+              }
+
+              // Claim Staking Rewards
+              if (action === 'claim-stake') {
+                const staked = profile.staked_amount || 0
+                const stakedAt = profile.staked_at ? new Date(profile.staked_at) : null
+                if (!staked || !stakedAt) { res.statusCode = 400; res.end(JSON.stringify({ error: 'No REGEN stakeados' })); return }
+                const days = (Date.now() - stakedAt.getTime()) / (1000 * 60 * 60 * 24)
+                const rwd = Math.floor(staked * 0.05 * days)
+                if (rwd < 1) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Aun no hay rewards' })); return }
+                const result = await mintTokens(walletAddress, rwd)
+                await auth.supabase.from('profiles').update({ staked_at: new Date().toISOString() }).eq('id', auth.user.id)
+                res.end(JSON.stringify({ ...result, type: 'claim-stake' }))
+                return
+              }
+
+              // Unstake
+              if (action === 'unstake') {
+                const staked = profile.staked_amount || 0
+                if (!staked) { res.statusCode = 400; res.end(JSON.stringify({ error: 'No REGEN stakeados' })); return }
+                const stakedAt = profile.staked_at ? new Date(profile.staked_at) : new Date()
+                const days = (Date.now() - stakedAt.getTime()) / (1000 * 60 * 60 * 24)
+                const rwd = Math.floor(staked * 0.05 * days)
+                const result = await mintTokens(walletAddress, staked + rwd)
+                await auth.supabase.from('profiles').update({ staked_amount: 0, staked_at: null }).eq('id', auth.user.id)
+                res.end(JSON.stringify({ ...result, unstaked: staked, reward: rwd, type: 'unstake' }))
+                return
+              }
+
+              // Claim Mission
+              if (action === 'claim-mission') {
+                if (!missionId || !reward) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing data' })); return }
+                const claimed = profile.claimed_missions || []
+                if (claimed.includes(missionId)) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Mision ya reclamada' })); return }
+                const result = await mintTokens(walletAddress, reward)
+                await auth.supabase.from('profiles').update({ claimed_missions: [...claimed, missionId] }).eq('id', auth.user.id)
+                res.end(JSON.stringify({ ...result, type: 'mission', missionId }))
+                return
+              }
+
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'Unknown action' }))
+            } catch (err) {
+              console.error('Earn error:', err)
+              res.statusCode = 500
+              res.end(JSON.stringify({ error: 'Operation failed' }))
+            }
+          })
+
+          // ── Airdrop API ──
+          server.middlewares.use('/api/airdrop', async (req, res) => {
+            if (req.method !== 'POST') {
+              res.statusCode = 405
+              res.end(JSON.stringify({ error: 'Method not allowed' }))
+              return
+            }
+
+            const auth = await verifyAuth(req, env)
+            if (!auth) {
+              res.statusCode = 401
+              res.end(JSON.stringify({ error: 'Unauthorized' }))
+              return
+            }
+
+            let body
+            try { body = await readBody(req, res) } catch { return }
+
+            try {
+              const { walletAddress } = JSON.parse(body)
+              if (!walletAddress) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'Missing walletAddress' }))
+                return
+              }
+
+              const { data: profile } = await auth.supabase
+                .from('profiles')
+                .select('airdrop_claimed')
+                .eq('id', auth.user.id)
+                .single()
+
+              if (profile?.airdrop_claimed) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'Airdrop ya reclamado' }))
+                return
+              }
+
+              // Mint 2000 REGEN
+              const pk = env.DEPLOYER_PRIVATE_KEY
+              const tokenAddr = env.VITE_REGEN_TOKEN_ADDRESS
+              let txHash = 'demo-mode'
+              if (pk && tokenAddr) {
+                const { createWalletClient, http, parseUnits, defineChain } = await import('viem')
+                const { privateKeyToAccount } = await import('viem/accounts')
+                const chain = defineChain({
+                  id: 10143, name: 'Monad Testnet',
+                  nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+                  rpcUrls: { default: { http: ['https://testnet-rpc.monad.xyz/'] } },
+                  testnet: true,
+                })
+                const account = privateKeyToAccount(pk)
+                const client = createWalletClient({ account, chain, transport: http('https://testnet-rpc.monad.xyz/') })
+                txHash = await client.writeContract({
+                  address: tokenAddr,
+                  abi: [{ name: 'mintReward', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [] }],
+                  functionName: 'mintReward',
+                  args: [walletAddress, parseUnits('2000', 18)],
+                })
+              }
+
+              await auth.supabase.from('profiles').update({ airdrop_claimed: true }).eq('id', auth.user.id)
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ txHash, amount: 2000 }))
+            } catch (err) {
+              console.error('Airdrop error:', err)
+              res.statusCode = 500
+              res.end(JSON.stringify({ error: 'Minting failed' }))
+            }
+          })
         },
       },
     ],

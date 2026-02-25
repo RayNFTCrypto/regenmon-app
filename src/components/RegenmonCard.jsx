@@ -4,6 +4,8 @@ import { SpriteDisplay } from "./SpriteDisplay";
 import { CareStats } from "./CareStats";
 import { ItemBar } from "./ItemBar";
 import { ChatBox } from "./ChatBox";
+import { TokenBalance } from "./TokenBalance";
+import { MintButton } from "./MintButton";
 
 export function RegenmonCard({ regenmon, careStats, onUseItem, onRelease }) {
   const type = regenmonTypes[regenmon.type];
@@ -24,6 +26,7 @@ export function RegenmonCard({ regenmon, careStats, onUseItem, onRelease }) {
           <span>{mood.emoji}</span>
           <span className="mood-label">{mood.label}</span>
         </div>
+        <TokenBalance />
       </div>
 
       {/* Sprite animado */}
@@ -72,13 +75,16 @@ export function RegenmonCard({ regenmon, careStats, onUseItem, onRelease }) {
         <p className="card-created">
           Creado: {new Date(regenmon.createdAt).toLocaleDateString("es-MX")}
         </p>
-        <button
-          className="btn-release"
-          onClick={onRelease}
-          style={{ "--btn-color": type.color }}
-        >
-          Liberar criatura
-        </button>
+        <div className="card-footer-actions">
+          <MintButton regenmon={regenmon} />
+          <button
+            className="btn-release"
+            onClick={onRelease}
+            style={{ "--btn-color": type.color }}
+          >
+            Liberar criatura
+          </button>
+        </div>
       </div>
     </div>
   );

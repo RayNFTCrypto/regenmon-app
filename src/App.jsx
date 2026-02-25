@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useAccount, useDisconnect } from "wagmi";
 import { useAuth } from "./contexts/AuthContext";
 import { supabase } from "./lib/supabase";
 import { CreationFlow } from "./components/CreationFlow";
@@ -6,15 +7,26 @@ import { RegenmonCard } from "./components/RegenmonCard";
 import { SplineBackground } from "./components/SplineBackground";
 import { AuthPage } from "./components/AuthPage";
 import { MusicPlayer } from "./components/MusicPlayer";
+import { WalletButton } from "./components/WalletButton";
+import { BattleView } from "./components/BattleView";
+import { Marketplace } from "./components/Marketplace";
+import { AirdropBanner } from "./components/AirdropBanner";
+import { EarnView } from "./components/EarnView";
+import { SnakeGame } from "./components/SnakeGame";
+import { TokenomicsView } from "./components/TokenomicsView";
+import { ManifestoView } from "./components/ManifestoView";
 import { INITIAL_CARE_STATS, DECAY_RATES } from "./data/moods";
 import "./App.css";
 
 function App() {
   const { user, loading: authLoading, signOut } = useAuth();
+  const { address: walletAddress } = useAccount();
+  const { disconnect } = useDisconnect();
   const [regenmon, setRegenmon] = useState(null);
   const [careStats, setCareStats] = useState(null);
   const [lastTick, setLastTick] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
+  const [view, setView] = useState("home"); // 'home' | 'battle' | 'marketplace' | 'earn' | 'snake'
   const intervalRef = useRef(null);
   const saveCounterRef = useRef(0);
 
@@ -33,11 +45,40 @@ function App() {
       .eq("id", regenmon.id);
   }, [regenmon?.id]);
 
+  // ── Helper: cargar datos de criatura al state ──
+  const applyRegenmonData = (data) => {
+    setRegenmon({
+      id: data.id,
+      name: data.name,
+      type: data.type,
+      stats: data.stats,
+      createdAt: data.created_at,
+      nftTxHash: data.nft_tx_hash || null,
+    });
+    const care = {
+      hunger: data.hunger,
+      energy: data.energy,
+      happiness: data.happiness,
+      health: data.health,
+    };
+    const tick = new Date(data.last_tick).getTime();
+    const elapsed = Date.now() - tick;
+    const minutesPassed = Math.min(elapsed / 60000, 480);
+    if (minutesPassed > 1) {
+      Object.entries(DECAY_RATES).forEach(([stat, rate]) => {
+        care[stat] = Math.max(0, Math.min(100, care[stat] + rate * minutesPassed));
+      });
+    }
+    setCareStats(care);
+    setLastTick(Date.now());
+  };
+
   // ── Cargar regenmon desde Supabase ──
   const loadRegenmon = useCallback(async () => {
     if (!user) return;
     setDataLoading(true);
 
+    // 1. Buscar por user_id
     const { data } = await supabase
       .from("regenmons")
       .select("*")
@@ -46,86 +87,41 @@ function App() {
       .maybeSingle();
 
     if (data) {
-      setRegenmon({
-        id: data.id,
-        name: data.name,
-        type: data.type,
-        stats: data.stats,
-        createdAt: data.created_at,
-      });
-      const care = {
-        hunger: data.hunger,
-        energy: data.energy,
-        happiness: data.happiness,
-        health: data.health,
-      };
-      const tick = new Date(data.last_tick).getTime();
-
-      // Aplicar catch-up decay
-      const elapsed = Date.now() - tick;
-      const minutesPassed = Math.min(elapsed / 60000, 480);
-      if (minutesPassed > 1) {
-        Object.entries(DECAY_RATES).forEach(([stat, rate]) => {
-          care[stat] = Math.max(0, Math.min(100, care[stat] + rate * minutesPassed));
-        });
+      // Si tiene wallet conectada, guardar la dirección
+      if (walletAddress && !data.wallet_address) {
+        await supabase
+          .from("regenmons")
+          .update({ wallet_address: walletAddress.toLowerCase() })
+          .eq("id", data.id);
       }
+      applyRegenmonData(data);
+      setDataLoading(false);
+      return;
+    }
 
-      setCareStats(care);
-      setLastTick(Date.now());
-    } else {
-      // Intentar migrar desde localStorage
-      const localRegenmon = localStorage.getItem("my-regenmon");
-      const localCare = localStorage.getItem("my-regenmon-care");
+    // 2. Buscar por wallet_address (reconexión de wallet)
+    if (walletAddress) {
+      const { data: walletData } = await supabase
+        .from("regenmons")
+        .select("*")
+        .eq("wallet_address", walletAddress.toLowerCase())
+        .limit(1)
+        .maybeSingle();
 
-      if (localRegenmon && localCare) {
-        try {
-          const parsed = JSON.parse(localRegenmon);
-          const parsedCare = JSON.parse(localCare);
-          const localTick = localStorage.getItem("my-regenmon-tick");
-          const parsedTick = localTick ? JSON.parse(localTick) : Date.now();
-
-          const { data: migrated } = await supabase
-            .from("regenmons")
-            .insert({
-              user_id: user.id,
-              name: parsed.name,
-              type: parsed.type,
-              stats: parsed.stats,
-              hunger: parsedCare.hunger,
-              energy: parsedCare.energy,
-              happiness: parsedCare.happiness,
-              health: parsedCare.health,
-              last_tick: new Date(parsedTick).toISOString(),
-            })
-            .select()
-            .single();
-
-          if (migrated) {
-            localStorage.removeItem("my-regenmon");
-            localStorage.removeItem("my-regenmon-care");
-            localStorage.removeItem("my-regenmon-tick");
-            setRegenmon({
-              id: migrated.id,
-              name: migrated.name,
-              type: migrated.type,
-              stats: migrated.stats,
-              createdAt: migrated.created_at,
-            });
-            setCareStats({
-              hunger: migrated.hunger,
-              energy: migrated.energy,
-              happiness: migrated.happiness,
-              health: migrated.health,
-            });
-            setLastTick(Date.now());
-          }
-        } catch {
-          // Migración fallida, ignorar
-        }
+      if (walletData) {
+        // Transferir criatura al nuevo user_id
+        await supabase
+          .from("regenmons")
+          .update({ user_id: user.id })
+          .eq("id", walletData.id);
+        applyRegenmonData(walletData);
+        setDataLoading(false);
+        return;
       }
     }
+
     setDataLoading(false);
-  }, [user]);
+  }, [user, walletAddress]);
 
   // Cargar cuando el user cambie
   useEffect(() => {
@@ -192,6 +188,7 @@ function App() {
         happiness: initialStats.happiness,
         health: initialStats.health,
         last_tick: new Date(now).toISOString(),
+        wallet_address: walletAddress ? walletAddress.toLowerCase() : null,
       })
       .select()
       .single();
@@ -256,8 +253,9 @@ function App() {
       <SplineBackground />
       <header className="app-header">
         <MusicPlayer />
+        <WalletButton />
         <span className="logo">Aetheria</span>
-        <button className="btn-signout" onClick={signOut}>
+        <button className="btn-signout" onClick={() => { disconnect(); signOut(); }}>
           Salir
         </button>
       </header>
@@ -266,12 +264,86 @@ function App() {
         {dataLoading ? (
           <div className="app-loading">Cargando...</div>
         ) : regenmon && careStats ? (
-          <RegenmonCard
-            regenmon={regenmon}
-            careStats={careStats}
-            onUseItem={handleUseItem}
-            onRelease={handleRelease}
-          />
+          view === "home" ? (
+            <>
+              <AirdropBanner />
+              <RegenmonCard
+                regenmon={regenmon}
+                careStats={careStats}
+                onUseItem={handleUseItem}
+                onRelease={handleRelease}
+              />
+              <div className="home-actions">
+                <button
+                  className="btn-battle-enter"
+                  onClick={() => setView("battle")}
+                >
+                  ⚔️ Batalla
+                </button>
+                <button
+                  className="btn-marketplace-enter"
+                  onClick={() => setView("marketplace")}
+                >
+                  🏪 Marketplace
+                </button>
+              </div>
+              <div className="home-actions">
+                <button
+                  className="btn-earn-enter"
+                  onClick={() => setView("earn")}
+                >
+                  💰 Earn
+                </button>
+                <button
+                  className="btn-snake-enter"
+                  onClick={() => setView("snake")}
+                >
+                  🐍 Snake
+                </button>
+              </div>
+              <div className="home-actions">
+                <button
+                  className="btn-tokenomics-enter"
+                  onClick={() => setView("tokenomics")}
+                >
+                  📊 Tokenomics
+                </button>
+                <button
+                  className="btn-manifesto-enter"
+                  onClick={() => setView("manifesto")}
+                >
+                  📜 Manifiesto
+                </button>
+              </div>
+            </>
+          ) : view === "battle" ? (
+            <BattleView
+              regenmon={regenmon}
+              onBack={() => setView("home")}
+            />
+          ) : view === "marketplace" ? (
+            <Marketplace
+              onBack={() => setView("home")}
+            />
+          ) : view === "earn" ? (
+            <EarnView
+              onBack={() => setView("home")}
+              regenmon={regenmon}
+              careStats={careStats}
+            />
+          ) : view === "snake" ? (
+            <SnakeGame
+              onBack={() => setView("home")}
+            />
+          ) : view === "tokenomics" ? (
+            <TokenomicsView
+              onBack={() => setView("home")}
+            />
+          ) : (
+            <ManifestoView
+              onBack={() => setView("home")}
+            />
+          )
         ) : (
           <CreationFlow onCreate={handleCreate} />
         )}

@@ -34,10 +34,28 @@ export function AuthProvider({ children }) {
       options: { redirectTo: window.location.origin },
     });
 
+  // Sign in anonymously (for wallet-only users)
+  const signInWithWallet = async (walletAddress) => {
+    const result = await supabase.auth.signInAnonymously();
+    if (result.data?.user && walletAddress) {
+      // Save wallet address to profile
+      await supabase
+        .from('profiles')
+        .update({
+          display_name: `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
+        })
+        .eq('id', result.data.user.id);
+    }
+    return result;
+  };
+
   const signOut = () => supabase.auth.signOut();
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{
+      user, loading,
+      signUp, signIn, signInWithGoogle, signInWithWallet, signOut,
+    }}>
       {children}
     </AuthContext.Provider>
   );

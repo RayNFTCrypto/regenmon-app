@@ -147,3 +147,78 @@ CREATE TRIGGER update_profiles_timestamp
 CREATE TRIGGER update_chat_timestamp
   BEFORE UPDATE ON public.chat_sessions
   FOR EACH ROW EXECUTE FUNCTION public.update_timestamp();
+
+
+-- =============================================
+-- PVP BATTLES — Phase 2
+-- =============================================
+
+-- Matchmaking queue
+CREATE TABLE public.matchmaking_queue (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  regenmon_id UUID REFERENCES public.regenmons(id) ON DELETE CASCADE NOT NULL,
+  status TEXT DEFAULT 'waiting' CHECK (status IN ('waiting', 'matched', 'cancelled')),
+  matched_battle_id UUID,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id)
+);
+
+-- Battles
+CREATE TABLE public.battles (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  player1_id UUID REFERENCES public.profiles(id) NOT NULL,
+  player1_regenmon_id UUID REFERENCES public.regenmons(id) NOT NULL,
+  player2_id UUID REFERENCES public.profiles(id) NOT NULL,
+  player2_regenmon_id UUID REFERENCES public.regenmons(id) NOT NULL,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'finished', 'abandoned')),
+  current_turn UUID,
+  turn_number INTEGER DEFAULT 1,
+  player1_hp INTEGER NOT NULL,
+  player2_hp INTEGER NOT NULL,
+  winner_id UUID REFERENCES public.profiles(id),
+  battle_log JSONB DEFAULT '[]'::jsonb,
+  reward_amount INTEGER DEFAULT 0,
+  reward_claimed BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_battles_players ON public.battles(player1_id, player2_id);
+CREATE INDEX idx_battles_status ON public.battles(status);
+CREATE INDEX idx_matchmaking_status ON public.matchmaking_queue(status);
+
+-- RLS for matchmaking
+ALTER TABLE public.matchmaking_queue ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view queue"
+  ON public.matchmaking_queue FOR SELECT USING (true);
+CREATE POLICY "Users can join queue"
+  ON public.matchmaking_queue FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own queue"
+  ON public.matchmaking_queue FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can leave queue"
+  ON public.matchmaking_queue FOR DELETE USING (auth.uid() = user_id);
+
+-- RLS for battles (both players can read/update)
+ALTER TABLE public.battles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Players can view their battles"
+  ON public.battles FOR SELECT USING (auth.uid() = player1_id OR auth.uid() = player2_id);
+CREATE POLICY "Players can insert battles"
+  ON public.battles FOR INSERT WITH CHECK (auth.uid() = player1_id OR auth.uid() = player2_id);
+CREATE POLICY "Players can update their battles"
+  ON public.battles FOR UPDATE USING (auth.uid() = player1_id OR auth.uid() = player2_id);
+
+-- Enable Supabase Realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE public.battles;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.matchmaking_queue;
+
+-- Auto-update timestamp
+CREATE TRIGGER update_battles_timestamp
+  BEFORE UPDATE ON public.battles
+  FOR EACH ROW EXECUTE FUNCTION public.update_timestamp();
+
+-- Add NFT tracking to regenmons
+ALTER TABLE public.regenmons ADD COLUMN IF NOT EXISTS token_id INTEGER;
+ALTER TABLE public.regenmons ADD COLUMN IF NOT EXISTS nft_tx_hash TEXT;

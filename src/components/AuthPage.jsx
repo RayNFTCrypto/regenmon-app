@@ -1,15 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useDisconnect } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 export function AuthPage() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, signInWithWallet } = useAuth();
+  const { disconnect } = useDisconnect();
+
+  const [showEmail, setShowEmail] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirmMsg, setConfirmMsg] = useState('');
+  const signedIn = useRef(false);
 
+  // Auto sign-in once wallet connects
+  const handleAutoSignIn = async (address) => {
+    if (signedIn.current || loading) return;
+    signedIn.current = true;
+    setLoading(true);
+    setError('');
+    const { error: authError } = await signInWithWallet(address);
+    if (authError) {
+      setError(authError.message);
+      signedIn.current = false;
+    }
+    setLoading(false);
+  };
+
+  // Email login
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -39,41 +60,52 @@ export function AuthPage() {
     <div className="auth-page">
       <div className="auth-card">
         <h1 className="auth-logo">Aetheria</h1>
-        <p className="auth-subtitle">
-          {isSignUp ? 'Crea tu cuenta' : 'Inicia sesion'}
-        </p>
+        <p className="auth-subtitle">Conecta para entrar</p>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <input
-            type="email"
-            className="auth-input"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            type="password"
-            className="auth-input"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-          />
+        {/* Wallet Connect - Primary Option using RainbowKit */}
+        <ConnectButton.Custom>
+          {({ account, chain, openConnectModal, mounted }) => {
+            const connected = mounted && account && chain;
 
-          {error && <p className="auth-error">{error}</p>}
-          {confirmMsg && <p className="auth-confirm">{confirmMsg}</p>}
+            // Auto sign-in when connected
+            if (connected && account.address) {
+              handleAutoSignIn(account.address);
+            }
 
-          <button type="submit" className="btn-auth-submit" disabled={loading}>
-            {loading ? '...' : isSignUp ? 'Crear cuenta' : 'Entrar'}
-          </button>
-        </form>
+            if (!connected) {
+              return (
+                <button
+                  className="btn-wallet-login"
+                  onClick={openConnectModal}
+                  disabled={loading}
+                >
+                  <span className="wallet-icon">🦊</span>
+                  Conectar Wallet
+                </button>
+              );
+            }
+
+            return (
+              <div className="wallet-connected-box">
+                <p className="wallet-address">{account.displayName}</p>
+                <p className="wallet-status">
+                  {loading ? 'Entrando...' : 'Conectado'}
+                </p>
+                <button className="btn-wallet-disconnect" onClick={() => { signedIn.current = false; disconnect(); }}>
+                  Desconectar Wallet
+                </button>
+              </div>
+            );
+          }}
+        </ConnectButton.Custom>
+
+        {error && <p className="auth-error">{error}</p>}
 
         <div className="auth-divider">
           <span>o</span>
         </div>
 
+        {/* Google */}
         <button className="btn-google" onClick={handleGoogle}>
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
@@ -84,20 +116,58 @@ export function AuthPage() {
           Continuar con Google
         </button>
 
-        <p className="auth-toggle">
-          {isSignUp ? 'Ya tienes cuenta?' : 'No tienes cuenta?'}{' '}
+        {/* Email toggle */}
+        {!showEmail ? (
           <button
-            type="button"
-            className="auth-toggle-btn"
-            onClick={() => {
-              setIsSignUp(!isSignUp);
-              setError('');
-              setConfirmMsg('');
-            }}
+            className="btn-show-email"
+            onClick={() => setShowEmail(true)}
           >
-            {isSignUp ? 'Inicia sesion' : 'Crear cuenta'}
+            Usar email y password
           </button>
-        </p>
+        ) : (
+          <>
+            <form onSubmit={handleSubmit} className="auth-form" style={{ marginTop: 12 }}>
+              <input
+                type="email"
+                className="auth-input"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <input
+                type="password"
+                className="auth-input"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+
+              {confirmMsg && <p className="auth-confirm">{confirmMsg}</p>}
+
+              <button type="submit" className="btn-auth-submit" disabled={loading}>
+                {loading ? '...' : isSignUp ? 'Crear cuenta' : 'Entrar'}
+              </button>
+            </form>
+
+            <p className="auth-toggle">
+              {isSignUp ? 'Ya tienes cuenta?' : 'No tienes cuenta?'}{' '}
+              <button
+                type="button"
+                className="auth-toggle-btn"
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setError('');
+                  setConfirmMsg('');
+                }}
+              >
+                {isSignUp ? 'Inicia sesion' : 'Crear cuenta'}
+              </button>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
