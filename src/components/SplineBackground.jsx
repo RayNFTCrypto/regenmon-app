@@ -1,9 +1,13 @@
-import Spline from "@splinetool/react-spline";
+import { lazy, Suspense } from "react";
+
+const Spline = lazy(() => import("@splinetool/react-spline"));
 
 export function SplineBackground() {
   return (
     <div className="spline-bg">
-      <Spline scene="/reactive_background.spline" />
+      <Suspense fallback={null}>
+        <Spline scene="/reactive_background.spline" />
+      </Suspense>
     </div>
   );
 }
