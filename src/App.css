@@ -118,11 +118,46 @@
   height: 100%;
   z-index: 0;
   pointer-events: none;
+  background: radial-gradient(ellipse at 20% 50%, rgba(88, 28, 135, 0.4) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 20%, rgba(15, 118, 110, 0.3) 0%, transparent 50%),
+              radial-gradient(ellipse at 50% 80%, rgba(30, 58, 138, 0.3) 0%, transparent 50%),
+              #08080f;
+  overflow: hidden;
 }
 
-.spline-bg canvas {
-  width: 100% !important;
-  height: 100% !important;
+.spline-bg::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 40%, rgba(139, 92, 246, 0.15) 0%, transparent 40%),
+              radial-gradient(circle at 70% 60%, rgba(6, 182, 212, 0.12) 0%, transparent 40%),
+              radial-gradient(circle at 50% 30%, rgba(59, 130, 246, 0.1) 0%, transparent 40%);
+  animation: bgFloat 20s ease-in-out infinite;
+}
+
+.spline-bg::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 60% 50%, rgba(168, 85, 247, 0.08) 0%, transparent 60%);
+  animation: bgPulse 8s ease-in-out infinite;
+}
+
+@keyframes bgFloat {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(2%, -2%) rotate(1deg); }
+  66% { transform: translate(-1%, 1%) rotate(-0.5deg); }
+}
+
+@keyframes bgPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 .app-header,

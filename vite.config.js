@@ -175,7 +175,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: {
-            spline: ['@splinetool/react-spline', '@splinetool/runtime'],
             supabase: ['@supabase/supabase-js'],
           },
         },
