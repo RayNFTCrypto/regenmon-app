@@ -174,8 +174,11 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            supabase: ['@supabase/supabase-js'],
+          manualChunks(id) {
+            if (id.includes('@supabase')) return 'supabase';
+            if (id.includes('@rainbow-me') || id.includes('wagmi') || id.includes('@walletconnect')) return 'wallet';
+            if (id.includes('@metamask')) return 'metamask';
+            if (id.includes('viem')) return 'viem';
           },
         },
       },
