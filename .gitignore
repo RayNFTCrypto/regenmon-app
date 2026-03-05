@@ -25,5 +25,7 @@ dist-ssr
 .vercel
 .env*.local
 
-# Build artifact (esbuild pre-bundled serverless function)
+# Build artifacts (esbuild pre-bundled serverless functions)
 api/index.js
+api/chat.js
+api/speak.js

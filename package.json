@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && esbuild api-src/index.js --bundle --platform=node --format=esm --outfile=api/index.js",
+    "build": "vite build && esbuild api-src/index.js api-src/chat.js api-src/speak.js --bundle --platform=node --format=esm --outdir=api",
     "lint": "eslint .",
     "preview": "vite preview"
   },
