@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 .vercel
 .env*.local
+
+# Build artifact (esbuild pre-bundled serverless function)
+api/index.js
