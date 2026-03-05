@@ -388,6 +388,38 @@ export default defineConfig(({ mode }) => {
             }
           })
 
+          // ── Unified API (for production parity) ──
+          server.middlewares.use('/api', async (req, res, next) => {
+            // Skip /api/chat and /api/speak (handled by their own middleware)
+            if (req.url?.startsWith('/chat') || req.url?.startsWith('/speak') ||
+                req.url?.startsWith('/earn') || req.url?.startsWith('/airdrop')) {
+              return next()
+            }
+            if (req.method !== 'POST') {
+              res.statusCode = 405
+              res.end(JSON.stringify({ error: 'Method not allowed' }))
+              return
+            }
+            let body
+            try { body = await readBody(req, res) } catch { return }
+            const parsed = JSON.parse(body)
+            // Rewrite to the route-specific handlers
+            if (parsed.route === 'earn') {
+              req.url = '/earn'
+              req.body = parsed
+              req._parsedBody = body
+            } else if (parsed.route === 'airdrop') {
+              req.url = '/airdrop'
+              req.body = parsed
+              req._parsedBody = body
+            } else {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'Unknown route' }))
+              return
+            }
+            next()
+          })
+
           // ── Earn API ──
           server.middlewares.use('/api/earn', async (req, res) => {
             if (req.method !== 'POST') {

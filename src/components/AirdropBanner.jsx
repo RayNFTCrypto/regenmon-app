@@ -17,13 +17,13 @@ export function AirdropBanner() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
 
-      const res = await fetch("/api/airdrop", {
+      const res = await fetch("/api", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ walletAddress: address }),
+        body: JSON.stringify({ route: "airdrop", walletAddress: address }),
       });
 
       const data = await res.json();

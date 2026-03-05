@@ -57,13 +57,13 @@ export function EarnView({ onBack, regenmon, careStats }) {
         data: { session },
       } = await supabase.auth.getSession();
 
-      const res = await fetch("/api/earn", {
+      const res = await fetch("/api", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ action, walletAddress: address, ...extra }),
+        body: JSON.stringify({ route: "earn", action, walletAddress: address, ...extra }),
       });
 
       const data = await res.json();
